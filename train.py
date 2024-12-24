@@ -8,7 +8,7 @@ from torch.utils.data import random_split, DataLoader
 from collections import OrderedDict
 from tqdm import tqdm
 
-from model import NestedUNet
+from model import UNet, NestedUNet
 from dataset import MyDataset
 
 random.seed(137)
@@ -62,11 +62,11 @@ def load_dataset(batchsize, num_workers=0):
     #tdataset, vdataset = random_split(dataset, [16,16])
                                                 
     train_loader = DataLoader(
-        train_dataset,#Subset(tdataset, list(range(16))),
+        train_dataset, #Subset(tdataset, list(range(16))),
         batch_size=batchsize, 
         shuffle=True, 
         sampler=None, 
-        batch_sampler=None, 
+        batch_sampler=None,
         num_workers=num_workers,
         #collate_fn=collate_fn
     )
@@ -75,14 +75,14 @@ def load_dataset(batchsize, num_workers=0):
         batch_size=batchsize, 
         shuffle=True, 
         sampler=None, 
-        batch_sampler=None, 
+        batch_sampler=None,
         num_workers=0,
         #collate_fn=collate_fn
     )
     return train_loader, val_loader
 
 def load_network(class_num, lr, device, checkpoint_path=None):
-    net = NestedUNet(class_num).to(device)
+    net = UNet(class_num).to(device)
     optimizer = optim.AdamW(net.parameters(), lr=lr)
 
     iepoch = 0
@@ -92,7 +92,7 @@ def load_network(class_num, lr, device, checkpoint_path=None):
             iepoch = int(cp['epoch'])+1
 
             #下面这一行是为了消除并行训练时，保存的网络参数名字会多出来一个 "xxx.module.xxxx"
-            state_dict = OrderedDict( [(k.replace('module.',''),v) for k,v in cp['model'].items()] )
+            state_dict = OrderedDict( [(k.replace('module.', ''), v) for k, v in cp['model'].items()] )
             net.load_state_dict(state_dict, strict=True)
 
     if len(os.environ['CUDA_VISIBLE_DEVICES']) > 1:
@@ -119,7 +119,7 @@ def train(epoch, net, loader, optimizer, criterion):
             data, target = item
 
             input = data.to(device) / 255.0
-            label = target.to(device)
+            label = target.float().to(device)
 
             output = net(input.float())
             loss = criterion(output, label)
@@ -153,11 +153,11 @@ def validate(net, loader, criterion):
     total = len(loader)
     tmpl = '[Evaluate][{0}/{1}] LOSS:{loss.val:.4f}({loss.avg:.4f}) ACCURCY:{accur.val:.3f}({accur.avg:.3f})'
     msg = tmpl.format(0, total, loss=losses, accur=accurs)
-    with tqdm( total=total,desc=msg, ascii=True ) as bar:
-        for i_batch,item in enumerate(loader):
-            data,target,target_lengths = item
+    with tqdm( total=total, desc=msg, ascii=True ) as bar:
+        for i_batch, item in enumerate(loader):
+            data, target = item
 
-            input = data.to(device) / 255.0
+            input = data.to(device) / 255.0 
             label = target.to(device)
             
             with torch.no_grad():
@@ -175,10 +175,10 @@ def validate(net, loader, criterion):
 
 
 if __name__ == "__main__":
-    epochs = 10
-    batch_size = 16
+    epochs = 2
+    batch_size = 8
     lr = 1e-4
-    class_num = 1
+    class_num = 5
 
     train_loader, valid_loader = load_dataset(batch_size)
     iepoch, net, optimizer = load_network(class_num, lr, device)#, checkpoint_path)
