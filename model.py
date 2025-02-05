@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torchinfo import summary
 
 class VGGBlock(nn.Module):
     def __init__(self, in_channels, middle_channels, out_channels):
@@ -61,7 +62,9 @@ class UNet(nn.Module):
     def __init__(self, num_classes, input_channels=3, **kwargs):
         super().__init__()
 
-        nb_filter = [32, 64, 128, 256, 512]
+        nb_filter = [64, 128, 256, 512, 1024]
+
+        self.n_classes = num_classes
 
         self.pool = nn.MaxPool2d(2, 2)
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
@@ -91,15 +94,16 @@ class UNet(nn.Module):
         x1_3 = self.conv1_3(torch.cat([x1_0, self.up(x2_2)], 1))
         x0_4 = self.conv0_4(torch.cat([x0_0, self.up(x1_3)], 1))
 
-        output = torch.sigmoid(self.final(x0_4))
+        output = self.final(x0_4)
         return output
     
 class NestedUNet(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, **kwargs):
         super().__init__()
 
-        nb_filter = [32, 64, 128, 256, 512]
+        nb_filter = [64, 128, 256, 512, 1024]
         self.deep_supervision = deep_supervision
+        self.n_classes = num_classes
 
         self.pool = nn.MaxPool2d(2, 2)
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
@@ -159,7 +163,7 @@ class NestedUNet(nn.Module):
             output4 = torch.sigmoid(self.final4(x0_4))
             return [output1, output2, output3, output4]
         else:
-            output = torch.sigmoid(self.final(x0_4))
+            output = self.final(x0_4)
             return output
 
 class AttUNet(nn.Module):
@@ -167,6 +171,8 @@ class AttUNet(nn.Module):
         super().__init__()
 
         nb_filter = [32, 64, 128, 256, 512, 1024]
+
+        self.n_classes = num_classes
 
         self.pool = nn.MaxPool2d(2, 2)
 
@@ -217,7 +223,7 @@ class AttUNet(nn.Module):
         x0_4 = self.attn0_4(d0_4, x0_0)
         d0_4 = self.conv0_4(torch.cat([x0_4, d0_4], dim=1))
 
-        output = torch.sigmoid(self.final(d0_4))
+        output = self.final(d0_4)
 
         return output
 
@@ -225,6 +231,10 @@ class AttUNet(nn.Module):
 if __name__ == '__main__':
     x = torch.randn(8, 3, 96, 96)
     #model = NestedUNet(1)
-    model = AttUNet(5)
-    y = model(x)
-    print(y.shape)
+    unet_model = UNet(1)
+    nest_model = NestedUNet(1)
+    attn_model = AttUNet(1)
+
+    x = attn_model(x)
+    summary(attn_model, input_size=(8, 3, 96, 96))
+    print(x.shape)

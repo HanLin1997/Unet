@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from model import UNet, NestedUNet
 from dataset import MyDataset
+from losses import calc_loss
 
 random.seed(137)
 np.random.seed(137)
@@ -44,20 +45,25 @@ def save_model(epoch, model, loss, accu):
     }
     torch.save(state, f'./save/{epoch}_{loss:.4f}_{accu:.4f}')
 
-def IoU_score(predict, target, threshold=0.85):
-    pred_binary = (predict > threshold).float()
-    target_binary = (target > threshold).float()
+def IoU_score(predict, target, mult_class = False):
+    pred_binary =  torch.zeros_like(predict)
+    if mult_class:
+        max_indices = torch.argmax(predict, dim=1)
+        pred_binary.scatter_(1, max_indices.unsqueeze(1), 1)
+    else:
+        pred_binary[predict > 0.5] = 1.0
+    target_binary = (target == 1.0).float()
 
     intersection = torch.sum(pred_binary * target_binary)
     union = torch.sum(pred_binary) + torch.sum(target_binary) - intersection
 
-    iou = intersection / union if union > 0.01 else 0.0
+    iou = intersection / union if union > 0.01 else torch.tensor([0.0], dtype=float)
 
     return iou.item()
 
-def load_dataset(batchsize, num_workers=0):
-    train_dataset = MyDataset()
-    val_dataset = MyDataset()
+def load_dataset(batchsize, num_workers=0, augmentation=False):
+    dataset = MyDataset(aug=augmentation)
+    train_dataset, val_dataset = random_split(dataset, [0.8, 0.2])
     #tdataset, vdataset = random_split(dataset, [len(dataset)-80,80])
     #tdataset, vdataset = random_split(dataset, [16,16])
                                                 
@@ -82,13 +88,13 @@ def load_dataset(batchsize, num_workers=0):
     return train_loader, val_loader
 
 def load_network(class_num, lr, device, checkpoint_path=None):
-    net = UNet(class_num).to(device)
+    net = NestedUNet(class_num).to(device)
     optimizer = optim.AdamW(net.parameters(), lr=lr)
 
     iepoch = 0
     if not checkpoint_path is None:
         if os.path.exists(checkpoint_path):
-            cp = torch.load(checkpoint_path)
+            cp = torch.load(checkpoint_path, weights_only=True)
             iepoch = int(cp['epoch'])+1
 
             #下面这一行是为了消除并行训练时，保存的网络参数名字会多出来一个 "xxx.module.xxxx"
@@ -119,15 +125,22 @@ def train(epoch, net, loader, optimizer, criterion):
             data, target = item
 
             input = data.to(device) / 255.0
-            label = target.float().to(device)
+            label = target.to(device=device) / 255.0
 
             output = net(input.float())
-            loss = criterion(output, label)
+            loss = criterion(output, label.float())
+            '''
+            loss += dice_loss(
+                            F.softmax(output, dim=1).float(),
+                            label.float(),
+                            multiclass=False
+                        )
+            '''
             losses.update(loss.item())
 
             optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(net.parameters(), 5.0, 2)
+            #nn.utils.clip_grad_norm_(net.parameters(), 5.0, 2)
             optimizer.step()
 
             iou = 100*IoU_score(output, label)
@@ -145,7 +158,7 @@ def validate(net, loader, criterion):
 
     net.eval()
 
-    if isinstance(net,nn.DataParallel):
+    if isinstance(net, nn.DataParallel):
         device = next(net.module.parameters()).device
     else:
         device = next(net.parameters()).device
@@ -158,11 +171,11 @@ def validate(net, loader, criterion):
             data, target = item
 
             input = data.to(device) / 255.0 
-            label = target.to(device)
+            label = target.to(device) / 255.0
             
             with torch.no_grad():
                 output = net(input.float())
-                loss = criterion(output, label)
+                loss = criterion(output, label.float())
                 losses.update(loss.item())
             
             accu = 100*IoU_score(output, label)
@@ -175,15 +188,16 @@ def validate(net, loader, criterion):
 
 
 if __name__ == "__main__":
-    epochs = 2
-    batch_size = 8
-    lr = 1e-4
-    class_num = 5
+    epochs = 40
+    batch_size = 2
+    lr = 1e-6
+    class_num = 1
+    checkpoint_path = r"save\24_0.0565_0.0767"
 
-    train_loader, valid_loader = load_dataset(batch_size)
-    iepoch, net, optimizer = load_network(class_num, lr, device)#, checkpoint_path)
+    train_loader, valid_loader = load_dataset(batch_size, augmentation=True)
+    iepoch, net, optimizer = load_network(class_num, lr, device, checkpoint_path)
 
-    criterion = nn.BCELoss()
+    criterion = calc_loss
 
     bestloss = np.inf
 

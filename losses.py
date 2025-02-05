@@ -34,26 +34,3 @@ def calc_loss(prediction, target, bce_weight=0.5):
     loss = bce * bce_weight + dice * (1 - bce_weight)
 
     return loss
-
-
-def threshold_predictions_v(predictions, thr=150):
-    thresholded_preds = predictions[:]
-   # hist = cv2.calcHist([predictions], [0], None, [2], [0, 2])
-   # plt.plot(hist)
-   # plt.xlim([0, 2])
-   # plt.show()
-    low_values_indices = thresholded_preds < thr
-    thresholded_preds[low_values_indices] = 0
-    low_values_indices = thresholded_preds >= thr
-    thresholded_preds[low_values_indices] = 255
-    return thresholded_preds
-
-
-def threshold_predictions_p(predictions, thr=0.01):
-    thresholded_preds = predictions[:]
-    #hist = cv2.calcHist([predictions], [0], None, [256], [0, 256])
-    low_values_indices = thresholded_preds < thr
-    thresholded_preds[low_values_indices] = 0
-    low_values_indices = thresholded_preds >= thr
-    thresholded_preds[low_values_indices] = 1
-    return thresholded_preds
